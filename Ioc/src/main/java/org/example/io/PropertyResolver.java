@@ -70,6 +70,23 @@ public class PropertyResolver {
         return this.properties.containsKey(key);
     }
 
+    @Nullable
+    public <T> T getProperty(String key, Class<T> targetType) {
+        String value = getProperty(key);
+        if (value == null) {
+            return null;
+        }
+        return convert(targetType, value);
+    }
+
+    <T> T convert(Class<?> clazz, String value) {
+        Function<String, Object> fn = this.converters.get(clazz);
+        if (fn == null) {
+            throw new IllegalArgumentException("Unsupported value type: " + clazz.getName());
+        }
+        return (T) fn.apply(value);
+    }
+
     /**
      * 递归调用
      * @param key
@@ -115,7 +132,10 @@ public class PropertyResolver {
         return Objects.requireNonNull(value,"Property '" + key + "' is required");
     }
 
-
+    public <T> T getRequiredProperty(String key, Class<T> targetType){
+        T value = getProperty(key);
+        return Objects.requireNonNull(value,"Property '" + key + "' is required");
+    }
 
     /**
      * ${key:defaultValue}
