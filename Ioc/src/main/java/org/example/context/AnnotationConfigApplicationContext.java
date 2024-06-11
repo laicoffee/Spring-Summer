@@ -213,7 +213,7 @@ public class AnnotationConfigApplicationContext {
 
     public List<BeanDefinition> findBeanDefinitions(Class<?> type){
         return this.beans.values().stream()
-                .filter(def->type.isAssignableFrom(def.getBeanClass()))
+                .filter(def->type.isAssignableFrom(def.getBeanClass())).collect(Collectors.toList());
     }
 
 

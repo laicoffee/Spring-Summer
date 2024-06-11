@@ -133,7 +133,7 @@ public class PropertyResolver {
     }
 
     public <T> T getRequiredProperty(String key, Class<T> targetType){
-        T value = getProperty(key);
+        T value = (T) getProperty(key);
         return Objects.requireNonNull(value,"Property '" + key + "' is required");
     }
 
