@@ -47,11 +47,175 @@ public class AnnotationConfigApplicationContext {
                     return def.getName();
                 }).collect(Collectors.toList());
 
+        List<BeanPostProcessor> processors = this.beans.values().stream()
+
+                .filter(this::isBeanPostProcessorDefinition)
+                .sorted()
+                .map(def-> {
+                    return (BeanPostProcessor)createBeanAsEarlySingleton(def);
+                }).collect(Collectors.toList());
+
+        this.beanPostProcessors.addAll(processors);
+
+        createNormalBeans();
+
+        this.beans.values().forEach(def->{
+            injectBean(def);
+        });
 
 
 
 
     }
+
+    void injectBean(BeanDefinition def){
+        Object beanInstance = getProxiedInstance(def);
+
+        try{
+            injectProperties(def,def.getBeanClass(),beanInstance);
+        } catch (InvocationTargetException e) {
+            throw new RuntimeException(e);
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    void injectProperties(BeanDefinition def, Class<?> clazz, Object bean) throws InvocationTargetException, IllegalAccessException {
+        for(Field f:clazz.getDeclaredFields()){
+            tryInjectProperties(def,clazz,bean,f);
+        }
+        for(Method m:clazz.getDeclaredMethods()){
+            tryInjectProperties(def,clazz,bean,m);
+        }
+        // 注入父类
+        Class<?> superclass = clazz.getSuperclass();
+        if (superclass != null) {
+            injectProperties(def, superclass, bean);
+        }
+    }
+
+    void tryInjectProperties(BeanDefinition def, Class<?> clazz, Object bean, AccessibleObject acc) throws IllegalAccessException, InvocationTargetException {
+        Value value = acc.getAnnotation(Value.class);
+        Autowired autowired = acc.getAnnotation(Autowired.class);
+        if (value != null && autowired != null) {
+            return;
+        }
+        Field field = null;
+        Method method = null;
+        if (acc instanceof Field f) {
+            checkFieldOrMethod(f);
+            f.setAccessible(true);
+            field = f;
+        }
+        if (acc instanceof Method m) {
+            checkFieldOrMethod(m);
+            if (m.getParameters().length != 1) {
+                throw new RuntimeException(
+                        String.format("Cannot inject a non-setter method %s for bean '%s': %s", m.getName(), def.getName(), def.getBeanClass().getName()));
+            }
+            m.setAccessible(true);
+            method = m;
+        }
+
+        String accessibleName = field != null ? field.getName() : method.getName();
+        Class<?> accessibleType = field != null ? field.getType() : method.getParameterTypes()[0];
+
+        if (value != null && autowired != null) {
+            throw new RuntimeException(String.format("Cannot specify both @Autowired and @Value when inject %s.%s for bean '%s': %s",
+                    clazz.getSimpleName(), accessibleName, def.getName(), def.getBeanClass().getName()));
+        }
+
+        //@Value注入
+        if (value != null) {
+            Object propValue = this.propertyResolver.getRequiredProperty(value.value(), accessibleType);
+            if (field != null) {
+                field.set(bean, propValue);
+            }
+            if (method != null) {
+                logger.atDebug().log("Method injection: {}.{} ({})", def.getBeanClass().getName(), accessibleName, propValue);
+                method.invoke(bean, propValue);
+            }
+
+        }
+
+        // @Autowired注入
+        if (autowired != null) {
+            String name = autowired.name();
+            boolean requried = autowired.value();
+            Object depends = name.isEmpty() ? findBean(accessibleType): findBean(accessibleName, accessibleType);
+            if(requried && depends == null){
+                throw new RuntimeException("required bean not found: " + accessibleType.getName());
+            }
+            if(depends != null){
+                if(field != null){
+                    field.set(bean,depends);
+                }
+                if (method != null) {
+                    logger.atDebug().log("Method injection: {}.{} ({})", def.getBeanClass().getName(), accessibleName, depends);
+                    method.invoke(bean, depends);
+                }
+            }
+
+        }
+    }
+
+    protected <T> T findBean(Class<T> requiredType){
+        BeanDefinition def = findBeanDefinition(requiredType);
+        if(def == null){
+            return null;
+        }
+        return (T) def.getRequiredInstance();
+    }
+
+    protected <T> T findBean(String name,Class<T> requiredType){
+        BeanDefinition beanDefinition = findBeanDefinition(name, requiredType);
+        if(beanDefinition == null){
+            return null;
+        }
+        return (T) beanDefinition.getRequiredInstance();
+    }
+
+
+
+    void checkFieldOrMethod(Member m){
+        int mod = m.getModifiers();
+        if(Modifier.isStatic(mod)){
+            throw new RuntimeException("static field or method cannot be injected: " + m.getName());
+        }
+        if(Modifier.isFinal(mod)){
+            throw new RuntimeException("final field or method cannot be injected: " + m.getName());
+        }
+
+
+    }
+
+    private Object getProxiedInstance(BeanDefinition def) {
+        Object beanInstance = def.getInstance();
+        // 如果Proxy改变了原始Bean，又希望注入到原始Bean，则由BeanPostProcessor指定原始Bean:
+        List<BeanPostProcessor> reversedBeanPostProcessors = new ArrayList<>(this.beanPostProcessors);
+        Collections.reverse(reversedBeanPostProcessors);
+        for (BeanPostProcessor beanPostProcessor : reversedBeanPostProcessors) {
+            Object restoredInstance = beanPostProcessor.postProcessOnSetProperty(beanInstance, def.getName());
+            if (restoredInstance != beanInstance) {
+                logger.atDebug().log("BeanPostProcessor {} specified injection from {} to {}.", beanPostProcessor.getClass().getSimpleName(),
+                        beanInstance.getClass().getSimpleName(), restoredInstance.getClass().getSimpleName());
+                beanInstance = restoredInstance;
+            }
+        }
+        return beanInstance;
+    }
+
+    void createNormalBeans(){
+        List<BeanDefinition> defs = this.beans.values().stream()
+                .filter(def -> def.getInstance() == null).sorted().collect(Collectors.toList());
+
+        defs.forEach(def->{
+            if(def.getInstance() == null){
+                createBeanAsEarlySingleton(def);
+            }
+        });
+    }
+
 
     /**
      * 创建一个bean，然后使用beanPostProcessor进行处理
