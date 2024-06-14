@@ -63,10 +63,57 @@ public class AnnotationConfigApplicationContext {
             injectBean(def);
         });
 
+        this.beans.values().forEach(def->{
+            initBean(def);
+        });
 
 
 
     }
+
+
+    void initBean(BeanDefinition def){
+        Object beanInstance = getProxiedInstance(def);
+
+        callMethod(beanInstance,def.getInitMethod(),def.getInitMethodName());
+
+        // 调用BeanPostProcessor.postProcessAfterInitialization():
+        beanPostProcessors.forEach(beanPostProcessor -> {
+            Object processedInstance = beanPostProcessor.postProcessAfterInitialization(def.getInstance(), def.getName());
+            if (processedInstance != def.getInstance()) {
+                logger.atDebug().log("BeanPostProcessor {} return different bean from {} to {}.", beanPostProcessor.getClass().getSimpleName(),
+                        def.getInstance().getClass().getName(), processedInstance.getClass().getName());
+                def.setInstance(processedInstance);
+            }
+        });
+
+    }
+
+    private void callMethod(Object beanInstance, Method method, String methodName) {
+
+        if(method != null){
+            try{
+                method.invoke(beanInstance);
+            } catch (InvocationTargetException e) {
+                throw new RuntimeException(e);
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException(e);
+            }
+        }else{
+            Method nameMethod = ClassUtils.getNameMethod(beanInstance.getClass(), methodName);
+            nameMethod.setAccessible(true);
+            try {
+                nameMethod.invoke(beanInstance);
+            } catch (IllegalAccessException e) {
+                throw new RuntimeException(e);
+            } catch (InvocationTargetException e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+
+    }
+
 
     void injectBean(BeanDefinition def){
         Object beanInstance = getProxiedInstance(def);
