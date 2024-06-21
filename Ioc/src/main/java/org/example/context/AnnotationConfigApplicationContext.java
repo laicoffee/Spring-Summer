@@ -20,7 +20,7 @@ import java.util.stream.Collectors;
  * @Date 2024/6/5 14:10
  * usage
  */
-public class AnnotationConfigApplicationContext {
+public class AnnotationConfigApplicationContext implements ConfigurableApplicationContext{
 
     protected final Logger logger = LoggerFactory.getLogger(getClass());
 
@@ -380,12 +380,53 @@ public class AnnotationConfigApplicationContext {
 
     }
 
+    @Override
+    public boolean containsBean(String name) {
+        return this.beans.containsKey(name);
+    }
+
     public <T> T getBean(String name){
         BeanDefinition def = this.beans.get(name);
         if(def == null){
             throw new RuntimeException("bean not found: " + name);
         }
         return (T) def.getRequiredInstance();
+
+    }
+
+    @Override
+    public <T> T getBean(String name, Class<T> requiredType) {
+        T t = findBean(name, requiredType);
+        if (t == null) {
+            throw new RuntimeException(String.format("No bean defined with name '%s' and type '%s'.", name, requiredType));
+        }
+        return t;
+    }
+
+    @Override
+    public <T> T getBean(Class<T> requiredType) {
+        BeanDefinition def = findBeanDefinition(requiredType);
+        if (def == null) {
+            throw new RuntimeException(String.format("No bean defined with type '%s'.", requiredType));
+        }
+        return (T) def.getRequiredInstance();
+    }
+
+    @Override
+    public <T> List<T> getBeans(Class<T> requiredType) {
+        List<BeanDefinition> defs = findBeanDefinitions(requiredType);
+        if (defs.isEmpty()) {
+            return List.of();
+        }
+        List<T> list = new ArrayList<>(defs.size());
+        for (var def : defs) {
+            list.add((T) def.getRequiredInstance());
+        }
+        return list;
+    }
+
+    @Override
+    public void close() {
 
     }
 
