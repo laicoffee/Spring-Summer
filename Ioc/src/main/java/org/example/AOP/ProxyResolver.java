@@ -18,6 +18,17 @@ public class ProxyResolver {
     // 创建ByteBuddy实例
     ByteBuddy byteBuddy = new ByteBuddy();
 
+
+    private static ProxyResolver INSTANCE = null;
+
+    public static ProxyResolver getInstance() {
+        if (INSTANCE == null) {
+            INSTANCE = new ProxyResolver();
+        }
+        return INSTANCE;
+    }
+
+
     /**
      * 传入需要被代理的bean，以及代理处理器
      * 返回代理后的实例
